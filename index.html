@@ -420,12 +420,13 @@ svg g.cg:hover .col{filter:brightness(1.2)}
         <option value="7">7 o más</option><option value="6">6 o más</option>
       </select>
       <select class="f" id="fSort">
-        <option value="reciente">Ordenar: añadidos ↓</option>
+        <option value="reciente">Ordenar: lo último leído</option>
         <option value="titulo">Ordenar: título</option>
         <option value="autor">Ordenar: autor</option>
         <option value="nota">Ordenar: nota ↓</option>
         <option value="anio">Ordenar: año ↓</option>
         <option value="paginas">Ordenar: páginas ↓</option>
+        <option value="anadido">Ordenar: fecha en que lo añadí ↓</option>
       </select>
       </div>
       <button class="icon-btn" id="btnCovers" title="Revisar carátulas">
@@ -520,7 +521,7 @@ const api = {
     const txt = await r.text();
     return txt ? JSON.parse(txt) : null;
   },
-  list(){ return this.req('libros?select=*&order=creado_en.desc,id.desc', {headers:this.h()}); },
+  list(){ return this.req('libros?select=*&order=anio_lectura.desc.nullslast,creado_en.desc,id.desc', {headers:this.h()}); },
   create(b){ return this.req('libros', {method:'POST', headers:this.h({'Prefer':'return=representation'}), body:JSON.stringify(b)}).then(r=>r[0]); },
   update(id,b){ return this.req('libros?id=eq.'+id, {method:'PATCH', headers:this.h({'Prefer':'return=representation'}), body:JSON.stringify(b)}).then(r=>r&&r[0]); },
   remove(id){ return this.req('libros?id=eq.'+id, {method:'DELETE', headers:this.h()}); },
@@ -1200,6 +1201,8 @@ function deducirGenero(it){
 /* ================================================================
    FILTRADO / ORDEN
    ================================================================ */
+const anioDe = b => b.anio_lectura ?? -1;   // sin año, al final
+
 function filtered(){
   const q  = normTxt($('#q').value);
   const fa = $('#fAutor').value, fg = $('#fGenero').value, fy = $('#fAnio').value, fn = +$('#fNota').value || 0;
@@ -1226,7 +1229,14 @@ function filtered(){
     nota:    () => out.sort(byNum('nota')),
     anio:    () => out.sort(byNum('anio_lectura')),
     paginas: () => out.sort(byNum('paginas')),
+    // primero lo leído más recientemente; dentro del mismo año, lo último añadido.
+    // Los que no tienen año de lectura (pendientes, o los que no recuerdas) van al final.
     reciente:() => out.sort((a,b)=>
+      (anioDe(b) - anioDe(a)) ||
+      String(b.creado_en||'').localeCompare(String(a.creado_en||'')) ||
+      (parseInt(b.id,10)||0) - (parseInt(a.id,10)||0) ||
+      col.compare(a.titulo,b.titulo)),
+    anadido: () => out.sort((a,b)=>
       String(b.creado_en||'').localeCompare(String(a.creado_en||'')) ||
       (parseInt(b.id,10)||0) - (parseInt(a.id,10)||0) ||
       col.compare(a.titulo,b.titulo)),
