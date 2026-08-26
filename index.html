@@ -616,6 +616,48 @@ async function enviaEnlace(correo){
   }
 }
 
+async function verificaCodigo(correo, codigo){
+  const r = await fetch(api.base() + '/auth/v1/verify', {
+    method: 'POST',
+    headers: {'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({email: correo, token: codigo.trim(), type: 'email'}),
+  });
+  if(!r.ok){
+    let m = ''; try{ const j = await r.json(); m = j.msg || j.message || j.error_description || ''; }catch(e){}
+    throw new Error(m || ('Error ' + r.status));
+  }
+  const j = await r.json();
+  if(!j.access_token) throw new Error('Supabase no ha devuelto la sesión');
+  guardaSesion({
+    access_token: j.access_token,
+    refresh_token: j.refresh_token || '',
+    caduca: Date.now() + ((j.expires_in || 3600) * 1000),
+    correo: correoDelToken(j.access_token) || correo,
+  });
+}
+
+async function entraConClave(correo, clave){
+  const r = await fetch(api.base() + '/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: {'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({email: correo, password: clave}),
+  });
+  if(!r.ok){
+    let m = ''; try{ const j = await r.json(); m = j.msg || j.message || j.error_description || j.error || ''; }catch(e){}
+    if(/invalid login credentials/i.test(m)) m = 'Correo o contraseña incorrectos.';
+    if(/email not confirmed/i.test(m)) m = 'La cuenta existe pero no está confirmada. En Supabase, edita el usuario y marca "Auto Confirm".';
+    throw new Error(m || ('Error ' + r.status));
+  }
+  const j = await r.json();
+  if(!j.access_token) throw new Error('Supabase no ha devuelto la sesión');
+  guardaSesion({
+    access_token: j.access_token,
+    refresh_token: j.refresh_token || '',
+    caduca: Date.now() + ((j.expires_in || 3600) * 1000),
+    correo: correoDelToken(j.access_token) || correo,
+  });
+}
+
 function openSesion(){
   if(identificado()){
     const m = openModal(`
@@ -632,37 +674,90 @@ function openSesion(){
     };
     return;
   }
+
   const m = openModal(`
     <header><h2>Iniciar sesión</h2><button class="close" aria-label="Cerrar">×</button></header>
     <div class="body">
-      <p style="font-size:13.5px;color:var(--text-secondary);margin:0 0 16px;line-height:1.6">
-        Escribe tu correo y te llega un enlace. Pulsas, vuelves aquí y ya puedes editar.
-        Sin contraseñas. Solo hace falta una vez por dispositivo.</p>
-      <label class="fld full">Tu correo
-        <input id="sCorreo" type="email" autocomplete="email" placeholder="tucorreo@ejemplo.com"></label>
+      <div class="grid2">
+        <label class="fld full">Correo
+          <input id="sCorreo" type="email" autocomplete="username" placeholder="tucorreo@ejemplo.com"></label>
+        <label class="fld full">Contraseña
+          <input id="sClave" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+      </div>
       <div id="sMsg" style="font-size:13px;margin-top:14px"></div>
+
+      <details class="detalles" id="sOtra" style="margin-top:20px">
+        <summary>Prefiero recibir un correo</summary>
+        <p style="font-size:13px;color:var(--text-secondary);margin:12px 0;line-height:1.6">
+          Te mandamos un mensaje con un enlace y, según la configuración, un código.
+          Aviso: Gmail a veces abre el enlace por su cuenta y lo inutiliza; si pasa, usa el código.</p>
+        <button class="btn" id="sEnviar">Enviar correo</button>
+        <div id="sPaso2" class="hidden" style="margin-top:14px">
+          <div style="display:flex;gap:8px;align-items:flex-end">
+            <label class="fld" style="flex:1">Código del correo
+              <input id="sCodigo" inputmode="numeric" autocomplete="one-time-code" maxlength="8"
+                     placeholder="123456" style="letter-spacing:.22em;font-size:16px"></label>
+            <button class="btn primary" id="sEntrarCod" style="height:38px">Entrar</button>
+          </div>
+        </div>
+      </details>
     </div>
     <footer><button class="btn close">Cancelar</button>
-      <button class="btn primary" id="sEnviar">Enviar enlace</button></footer>`, 'sm');
-  const inp = m.querySelector('#sCorreo'); inp.focus();
-  const msg = m.querySelector('#sMsg');
-  const enviar = async () => {
-    const c = inp.value.trim();
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c)){ msg.innerHTML = '<span style="color:var(--critical)">Ese correo no parece válido.</span>'; return; }
-    const btn = m.querySelector('#sEnviar');
-    btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true;
+      <button class="btn primary" id="sEntrar">Entrar</button></footer>`, 'sm');
+
+  const q = s => m.querySelector(s);
+  const msg = q('#sMsg');
+  const correo = () => q('#sCorreo').value.trim();
+  q('#sCorreo').focus();
+
+  const dentro = async () => {
+    m.remove(); pintaSesion();
+    state.sugCargadas = false;
+    await load(); refreshFilters(); render();
+    toast('Sesión iniciada. Ya puedes editar.');
+    fillCovers();
+  };
+  const falla = (btn, txt, e) => {
+    msg.innerHTML = '<span style="color:var(--critical)">' + esc(String(e.message).slice(0,160)) + '</span>';
+    btn.textContent = txt; btn.disabled = false;
+  };
+
+  /* --- contraseña --- */
+  const entrar = async () => {
+    const c = correo(), cl = q('#sClave').value;
+    if(!c || !cl){ msg.innerHTML = '<span style="color:var(--critical)">Rellena correo y contraseña.</span>'; return; }
+    const btn = q('#sEntrar'); btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true;
+    try{ await entraConClave(c, cl); await dentro(); }
+    catch(e){ falla(btn, 'Entrar', e); }
+  };
+  q('#sEntrar').onclick = entrar;
+  q('#sClave').onkeydown = e => { if(e.key === 'Enter') entrar(); };
+  q('#sCorreo').onkeydown = e => { if(e.key === 'Enter') q('#sClave').focus(); };
+
+  /* --- enlace / código por correo --- */
+  q('#sEnviar').onclick = async () => {
+    const c = correo();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c)){ msg.innerHTML = '<span style="color:var(--critical)">Escribe arriba un correo válido.</span>'; return; }
+    const btn = q('#sEnviar'); btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true;
     try{
       await enviaEnlace(c);
-      msg.innerHTML = '<span style="color:var(--good)">Enviado. Abre tu correo y pulsa el enlace; '
-                    + 'volverás aquí con la sesión iniciada.</span>';
-      btn.textContent = 'Enviado'; 
-    }catch(e){
-      msg.innerHTML = '<span style="color:var(--critical)">No se pudo enviar: ' + esc(String(e.message).slice(0,140)) + '</span>';
-      btn.textContent = 'Reintentar'; btn.disabled = false;
-    }
+      msg.innerHTML = '<span style="color:var(--good)">Enviado.</span> '
+                    + '<span style="color:var(--text-secondary)">Pulsa el enlace, o escribe aquí el código si viene.</span>';
+      q('#sPaso2').classList.remove('hidden');
+      q('#sCodigo').focus();
+      btn.textContent = 'Reenviar'; btn.disabled = false;
+    }catch(e){ falla(btn, 'Enviar correo', e); }
   };
-  m.querySelector('#sEnviar').onclick = enviar;
-  inp.onkeydown = e => { if(e.key === 'Enter') enviar(); };
+
+  const entrarCod = async () => {
+    const cod = q('#sCodigo').value.trim();
+    if(cod.length < 6){ msg.innerHTML = '<span style="color:var(--critical)">El código son 6 dígitos o más.</span>'; return; }
+    const btn = q('#sEntrarCod'); btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true;
+    try{ await verificaCodigo(correo(), cod); await dentro(); }
+    catch(e){ falla(btn, 'Entrar', e); }
+  };
+  q('#sEntrarCod').onclick = entrarCod;
+  q('#sCodigo').onkeydown = e => { if(e.key === 'Enter') entrarCod(); };
 }
 
 /* refleja el estado de la sesión en la cabecera */
