@@ -58,6 +58,8 @@ header.top{
 .top-inner{max-width:1240px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:650;letter-spacing:-.02em}
 .brand svg{flex:none}
+.brand .chip{font-size:10.5px;padding:3px 8px;font-weight:600;letter-spacing:.02em}
+.icon-btn.activo{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
 .grow{flex:1}
 .tabs{display:flex;gap:2px;background:var(--surface-2);padding:3px;border-radius:10px}
 .tabs button{
@@ -369,6 +371,7 @@ svg g.cg:hover .col{filter:brightness(1.2)}
     <div class="brand">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
       Mi Biblioteca
+      <span class="chip hidden" id="soloLectura" title="Inicia sesión para poder editar">Solo lectura</span>
     </div>
     <div class="tabs" role="tablist">
       <button role="tab" data-tab="leidos" aria-selected="true">Leídos</button>
@@ -380,6 +383,9 @@ svg g.cg:hover .col{filter:brightness(1.2)}
     <button class="btn primary" id="btnAdd">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       Añadir libro
+    </button>
+    <button class="icon-btn" id="btnSesion" title="Tu sesión">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
     </button>
     <button class="icon-btn" id="btnTheme" title="Cambiar tema">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -488,10 +494,12 @@ function toast(msg, ms=2600){
    ================================================================ */
 const api = {
   h(extra={}){
-    // Las claves nuevas (sb_publishable_...) NO son JWT: solo van en 'apikey'.
-    // Las antiguas (anon, empiezan por eyJ) admiten ademas Authorization: Bearer.
+    // 'apikey' siempre. En 'Authorization' va el token del usuario si ha
+    // iniciado sesión; si no, la clave antigua tipo JWT (las nuevas
+    // sb_publishable_... no valen ahí: Supabase las rechaza).
     const base = {'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json'};
-    if(/^eyJ/.test(SUPABASE_ANON_KEY)) base['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
+    if(typeof sesion !== 'undefined' && sesion && sesion.access_token) base['Authorization'] = 'Bearer ' + sesion.access_token;
+    else if(/^eyJ/.test(SUPABASE_ANON_KEY)) base['Authorization'] = 'Bearer ' + SUPABASE_ANON_KEY;
     return Object.assign(base, extra);
   },
   base(){
@@ -503,6 +511,10 @@ const api = {
       .replace(/\/+$/,'');
   },
   async req(path, opts={}){
+    if(typeof sesionAlDia === 'function') await sesionAlDia();
+    if(opts.headers && typeof sesion !== 'undefined' && sesion && sesion.access_token){
+      opts.headers['Authorization'] = 'Bearer ' + sesion.access_token;   // por si se renovó
+    }
     const r = await fetch(this.base() + '/rest/v1/' + path, opts);
     if(!r.ok) throw new Error((await r.text()) || ('HTTP ' + r.status));
     const txt = await r.text();
@@ -513,6 +525,154 @@ const api = {
   update(id,b){ return this.req('libros?id=eq.'+id, {method:'PATCH', headers:this.h({'Prefer':'return=representation'}), body:JSON.stringify(b)}).then(r=>r&&r[0]); },
   remove(id){ return this.req('libros?id=eq.'+id, {method:'DELETE', headers:this.h()}); },
 };
+
+
+/* ================================================================
+   SESIÓN
+   Leer es libre. Para escribir hay que identificarse con un enlace
+   que llega al correo (Supabase Auth). El token se guarda en el
+   navegador, así que solo hay que hacerlo una vez por dispositivo.
+   ================================================================ */
+const AUTH_KEY = 'biblioteca_sesion';
+let sesion = null;
+
+function guardaSesion(s){
+  sesion = s;
+  try{
+    if(s) localStorage.setItem(AUTH_KEY, JSON.stringify(s));
+    else  localStorage.removeItem(AUTH_KEY);
+  }catch(e){ /* navegador sin almacenamiento: la sesión dura lo que la pestaña */ }
+}
+function cargaSesion(){
+  try{
+    const t = localStorage.getItem(AUTH_KEY);
+    if(t) sesion = JSON.parse(t);
+  }catch(e){}
+}
+function correoDelToken(t){
+  try{
+    const p = t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+    return JSON.parse(decodeURIComponent(escape(atob(p)))).email || '';
+  }catch(e){ return ''; }
+}
+const identificado = () => !!(sesion && sesion.access_token);
+
+/* al volver del enlace del correo, Supabase deja los tokens en el # de la URL */
+function recogeTokensDeLaUrl(){
+  const h = (location.hash || '').replace(/^#/, '');
+  if(!h.includes('access_token')) return false;
+  const p = new URLSearchParams(h);
+  const at = p.get('access_token');
+  if(!at) return false;
+  guardaSesion({
+    access_token: at,
+    refresh_token: p.get('refresh_token') || '',
+    caduca: Date.now() + (parseInt(p.get('expires_in'), 10) || 3600) * 1000,
+    correo: correoDelToken(at),
+  });
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+
+async function refrescaSesion(){
+  if(!sesion || !sesion.refresh_token) return false;
+  try{
+    const r = await fetch(api.base() + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: {'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json'},
+      body: JSON.stringify({refresh_token: sesion.refresh_token}),
+    });
+    if(!r.ok) throw new Error('sesión caducada');
+    const j = await r.json();
+    guardaSesion({
+      access_token: j.access_token,
+      refresh_token: j.refresh_token || sesion.refresh_token,
+      caduca: Date.now() + ((j.expires_in || 3600) * 1000),
+      correo: correoDelToken(j.access_token),
+    });
+    return true;
+  }catch(e){ guardaSesion(null); return false; }
+}
+
+/* renueva el token si le quedan menos de dos minutos */
+async function sesionAlDia(){
+  if(!identificado()) return;
+  if(sesion.caduca && sesion.caduca - Date.now() > 120000) return;
+  await refrescaSesion();
+}
+
+async function enviaEnlace(correo){
+  const url = api.base() + '/auth/v1/otp?redirect_to='
+            + encodeURIComponent(location.origin + location.pathname);
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({email: correo, create_user: true}),
+  });
+  if(!r.ok){
+    let m = ''; try{ const j = await r.json(); m = j.msg || j.message || j.error_description || ''; }catch(e){}
+    throw new Error(m || ('Error ' + r.status));
+  }
+}
+
+function openSesion(){
+  if(identificado()){
+    const m = openModal(`
+      <header><h2>Tu sesión</h2><button class="close" aria-label="Cerrar">×</button></header>
+      <div class="body">
+        <p style="font-size:13.5px;color:var(--text-secondary);margin:0 0 6px">Has iniciado sesión como</p>
+        <p style="font-size:15px;font-weight:600;margin:0">${esc(sesion.correo || 'tu cuenta')}</p>
+        <p style="font-size:12.5px;color:var(--text-muted);margin:14px 0 0">
+          Mientras la mantengas, puedes añadir y editar libros desde este dispositivo.</p>
+      </div>
+      <footer><button class="btn close">Cerrar</button><button class="btn danger" id="salir">Cerrar sesión</button></footer>`, 'sm');
+    m.querySelector('#salir').onclick = () => {
+      guardaSesion(null); m.remove(); pintaSesion(); render(); toast('Sesión cerrada');
+    };
+    return;
+  }
+  const m = openModal(`
+    <header><h2>Iniciar sesión</h2><button class="close" aria-label="Cerrar">×</button></header>
+    <div class="body">
+      <p style="font-size:13.5px;color:var(--text-secondary);margin:0 0 16px;line-height:1.6">
+        Escribe tu correo y te llega un enlace. Pulsas, vuelves aquí y ya puedes editar.
+        Sin contraseñas. Solo hace falta una vez por dispositivo.</p>
+      <label class="fld full">Tu correo
+        <input id="sCorreo" type="email" autocomplete="email" placeholder="tucorreo@ejemplo.com"></label>
+      <div id="sMsg" style="font-size:13px;margin-top:14px"></div>
+    </div>
+    <footer><button class="btn close">Cancelar</button>
+      <button class="btn primary" id="sEnviar">Enviar enlace</button></footer>`, 'sm');
+  const inp = m.querySelector('#sCorreo'); inp.focus();
+  const msg = m.querySelector('#sMsg');
+  const enviar = async () => {
+    const c = inp.value.trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c)){ msg.innerHTML = '<span style="color:var(--critical)">Ese correo no parece válido.</span>'; return; }
+    const btn = m.querySelector('#sEnviar');
+    btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true;
+    try{
+      await enviaEnlace(c);
+      msg.innerHTML = '<span style="color:var(--good)">Enviado. Abre tu correo y pulsa el enlace; '
+                    + 'volverás aquí con la sesión iniciada.</span>';
+      btn.textContent = 'Enviado'; 
+    }catch(e){
+      msg.innerHTML = '<span style="color:var(--critical)">No se pudo enviar: ' + esc(String(e.message).slice(0,140)) + '</span>';
+      btn.textContent = 'Reintentar'; btn.disabled = false;
+    }
+  };
+  m.querySelector('#sEnviar').onclick = enviar;
+  inp.onkeydown = e => { if(e.key === 'Enter') enviar(); };
+}
+
+/* refleja el estado de la sesión en la cabecera */
+function pintaSesion(){
+  const b = $('#btnSesion');
+  if(b) b.classList.toggle('activo', identificado());
+  const chip = $('#soloLectura');
+  if(chip) chip.classList.toggle('hidden', identificado());
+  const add = $('#btnAdd');
+  if(add) add.classList.toggle('hidden', !identificado());
+}
 
 async function load(){
   if(state.online){
@@ -525,7 +685,17 @@ async function load(){
       return;
     }catch(e){
       state.online = false;
-      banner('No he podido conectar con Supabase (<b>'+esc(String(e.message).slice(0,160))+'</b>). Mostrando los datos locales de tu Excel; los cambios no se guardarán.', 'err');
+      const red = /failed to fetch|networkerror|load failed|fetch/i.test(String(e.message));
+      banner(
+        (red
+          ? '<b>No he podido conectar con tu base de datos.</b> El navegador ni siquiera ha llegado a hablar con Supabase, '
+            + 'así que no es cosa de permisos. Lo más habitual: el proyecto gratuito se ha pausado por inactividad — '
+            + 'entra en <b>supabase.com/dashboard</b> y, si aparece como <i>Paused</i>, pulsa <b>Restore project</b> y espera un par de minutos. '
+            + 'Si no es eso, revisa tu conexión o algún bloqueador del navegador.'
+          : 'No he podido conectar con Supabase.')
+        + '<br><span style="color:var(--text-muted)">Detalle: <code>' + esc(String(e.message).slice(0,160)) + '</code></span>'
+        + '<br>Mientras tanto ves los 36 libros de tu Excel, guardados dentro de la página; los cambios no se guardarán.',
+        'err', true);
     }
   } else {
     banner('<b>Modo demo.</b> Estás viendo los 36 libros de tu Excel guardados dentro de este archivo. Para guardar cambios y sincronizar entre dispositivos, pega tus 2 claves de Supabase al principio del bloque <code>&lt;script&gt;</code> de este HTML (ver <b>GUIA.md</b>).');
@@ -533,16 +703,36 @@ async function load(){
   state.books = SEED.map((b,i)=>Object.assign({id:'demo-'+i}, b));
 }
 
-function banner(html, cls=''){
-  $('#banner').innerHTML = html
-    ? '<div class="banner '+cls+'"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:1px"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><div>'+html+'</div></div>'
+function banner(html, cls='', reintentar=false){
+  const host = $('#banner');
+  host.innerHTML = html
+    ? '<div class="banner '+cls+'">'
+      + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:1px"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>'
+      + '<div style="flex:1">'+html+'</div>'
+      + (reintentar ? '<button class="btn" id="reconectar" style="flex:none">Reintentar</button>' : '')
+      + '</div>'
     : '';
+  const rb = host.querySelector('#reconectar');
+  if(rb) rb.onclick = () => reconectar(rb);
+}
+
+/* vuelve a intentar la conexión sin recargar la página */
+async function reconectar(btn){
+  if(btn){ btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true; }
+  state.online = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+  state.sugCargadas = false;
+  await load();
+  refreshFilters(); render(); pintaSesion();
+  if(state.online){
+    toast('Conectado. Datos recuperados de la nube.');
+    if(identificado()) fillCovers();
+  } else if(btn){ btn.textContent = 'Reintentar'; btn.disabled = false; }
 }
 
 /* guarda un cambio: online -> Supabase, demo -> solo memoria */
 async function persist(book, patch){
   Object.assign(book, patch);
-  if(state.online && !String(book.id).startsWith('demo-')){
+  if(state.online && identificado() && !String(book.id).startsWith('demo-')){
     try{ await api.update(book.id, patch); }
     catch(e){ toast('No se pudo guardar: ' + e.message); }
   }
@@ -914,6 +1104,7 @@ async function fillCovers(forzar = false){
 /* aviso con el estado de las carátulas + botón para reintentar */
 function coversBanner(faltan, err, fase){
   const host = $('#banner2');
+  if(!identificado()){ host.innerHTML = ''; return; }
   if(!faltan){
     // nada que falta, pero quizá haya sinopsis mejorables con Google Books
     const sinNota = state.books.filter(b => b.rating_ext == null && b.enriquecido).length;
@@ -1151,7 +1342,7 @@ function openDetail(id){
       <div class="detail">
         <div>
           <div class="cover" style="box-shadow:var(--shadow)">${coverHTML(b,'dc')}</div>
-          <button class="btn" id="mCover" style="width:100%;margin-top:10px;justify-content:center">Cambiar portada</button>
+          ${identificado() ? '<button class="btn" id="mCover" style="width:100%;margin-top:10px;justify-content:center">Cambiar portada</button>' : ''}
         </div>
         <div>
           <h3>${esc(b.titulo)}</h3>
@@ -1188,25 +1379,30 @@ function openDetail(id){
             ? '<div class="sinbox"><b>Sinopsis</b><div class="sinopsis">'+esc(b.sinopsis)+'</div>'
               + '<div class="fuente">'
               + (b.sinopsis_fuente ? (b.sinopsis_fuente === 'ti' ? 'escrita por ti' : 'vía '+esc(b.sinopsis_fuente)) : '')
-              + ' <button class="btn" id="mSinOtra">Buscar otra</button></div>'
+              + (identificado() ? ' <button class="btn" id="mSinOtra">Buscar otra</button>' : '') + '</div>'
               + '</div>'
             : '<div class="sinbox vacia"><b>Sinopsis</b><div>Todavía no la tengo.'
-              + ' <button class="btn" id="mSin">Buscarla</button>'
-              + ' <button class="btn" id="mSinYo">Escribirla yo</button></div></div>'}
+              + (identificado() ? ' <button class="btn" id="mSin">Buscarla</button>'
+                                + ' <button class="btn" id="mSinYo">Escribirla yo</button>' : '')
+              + '</div></div>'}
         </div>
       </div>
     </div>
     <footer>
-      <button class="btn danger" id="mDel">Eliminar</button>
-      <div class="grow" style="flex:1"></div>
-      <button class="btn" id="mFav">${b.favorito ? '★ Quitar favorito' : '☆ Favorito'}</button>
-      ${b.estado === 'pendiente' ? '<button class="btn" id="mLeido">Marcar como leído</button>' : ''}
-      <button class="btn primary" id="mEdit">Editar</button>
+      ${identificado() ? `
+        <button class="btn danger" id="mDel">Eliminar</button>
+        <div class="grow" style="flex:1"></div>
+        <button class="btn" id="mFav">${b.favorito ? '★ Quitar favorito' : '☆ Favorito'}</button>
+        ${b.estado === 'pendiente' ? '<button class="btn" id="mLeido">Marcar como leído</button>' : ''}
+        <button class="btn primary" id="mEdit">Editar</button>`
+      : `<span style="font-size:12.5px;color:var(--text-muted);flex:1">Inicia sesión para editar este libro.</span>
+         <button class="btn close">Cerrar</button>`}
     </footer>`);
 
-  m.querySelector('#mEdit').onclick = () => { m.remove(); openForm(b); };
-  m.querySelector('#mFav').onclick  = async () => { await persist(b, {favorito: !b.favorito}); m.remove(); render(); };
-  m.querySelector('#mCover').onclick = () => { m.remove(); openCoverPicker(b); };
+  const q = s => m.querySelector(s);
+  if(q('#mEdit')) q('#mEdit').onclick = () => { m.remove(); openForm(b); };
+  if(q('#mFav'))  q('#mFav').onclick  = async () => { await persist(b, {favorito: !b.favorito}); m.remove(); render(); };
+  if(q('#mCover')) q('#mCover').onclick = () => { m.remove(); openCoverPicker(b); };
   const ms = m.querySelector('#mSin');
   if(ms) ms.onclick = async () => {
     ms.innerHTML = '<span class="spin"></span>';
@@ -1221,12 +1417,12 @@ function openDetail(id){
   if(msy) msy.onclick = () => { m.remove(); openForm(b, null, 'sinopsis'); };
   const mso = m.querySelector('#mSinOtra');
   if(mso) mso.onclick = () => { m.remove(); openSinopsisPicker(b); };
-  const ml = m.querySelector('#mLeido');
+  const ml = q('#mLeido');
   if(ml) ml.onclick = async () => {
     await persist(b, {estado:'leido', anio_lectura: b.anio_lectura || new Date().getFullYear()});
     m.remove(); refreshFilters(); render(); toast('¡Leído! Movido a tu biblioteca');
   };
-  m.querySelector('#mDel').onclick = async () => {
+  if(q('#mDel')) q('#mDel').onclick = async () => {
     if(!confirm('¿Eliminar «' + b.titulo + '» de la biblioteca?')) return;
     if(state.online && !String(b.id).startsWith('demo-')){
       try{ await api.remove(b.id); }catch(e){ toast('No se pudo eliminar: '+e.message); return; }
@@ -1822,7 +2018,7 @@ async function cargarSugerencias(){
 
 async function persistSug(s, patch){
   Object.assign(s, patch);
-  if(state.online && !String(s.id).startsWith('s-')){
+  if(state.online && identificado() && !String(s.id).startsWith('s-')){
     try{ await api.updateSug(s.id, patch); }catch(e){ toast('No se pudo guardar: '+e.message); }
   }
 }
@@ -1897,6 +2093,7 @@ function sugCard(s, acciones){
 
 function renderSug(){
   const host = $('#view-sug');
+  const puede = identificado();
   const activas = state.sug.filter(s => s.estado === 'nueva' && !yaLoTengo(s.titulo));
   const fuera   = state.sug.filter(s => s.estado !== 'nueva' || yaLoTengo(s.titulo));
 
@@ -1910,7 +2107,7 @@ function renderSug(){
     if(!items.length) continue;
     html += `<section class="sug-block">
       <h3>${BLOQUES[k].t}</h3><div class="sub">${BLOQUES[k].s}</div>
-      <div class="sug-list">${items.map(s => sugCard(s, true)).join('')}</div>
+      <div class="sug-list">${items.map(s => sugCard(s, puede)).join('')}</div>
     </section>`;
   }
   if(!activas.length) html += '<div class="empty"><h3>Sin sugerencias pendientes</h3><p>Las has revisado todas. Pídeme una tanda nueva cuando quieras.</p></div>';
@@ -2031,7 +2228,9 @@ function wire(){
   });
   $('#btnAdd').onclick = openSearch;
   $('#btnFiltros').onclick = () => $('#filtros').classList.toggle('abierto');
-  $('#btnCovers').onclick = openCoverReview;
+  $('#btnSesion').onclick = openSesion;
+  $('#btnCovers').onclick = () => identificado() ? openCoverReview()
+    : toast('Inicia sesión para cambiar las carátulas');
   $('#btnExport').onclick = exportar;
   $('#btnView').onclick = () => { state.view = state.view === 'galeria' ? 'tabla' : 'galeria'; render(); };
   const ICON_MOON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
@@ -2046,10 +2245,24 @@ function wire(){
 
 (async function init(){
   wire();
+  cargaSesion();
+  const reciénLlegado = recogeTokensDeLaUrl();
+  await sesionAlDia();
+  pintaSesion();
   await load();
   refreshFilters();
   render();
-  fillCovers();
+  if(reciénLlegado) toast('Sesión iniciada. Ya puedes editar.');
+  if(identificado()) fillCovers();   // sin sesión no se puede guardar nada
+
+  // por si el enlace del correo aterriza con la página ya abierta
+  window.addEventListener('hashchange', async () => {
+    if(!recogeTokensDeLaUrl()) return;
+    pintaSesion();
+    await load(); refreshFilters(); render();
+    toast('Sesión iniciada. Ya puedes editar.');
+    fillCovers();
+  });
 })();
 </script>
 </body>
