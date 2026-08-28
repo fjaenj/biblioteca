@@ -141,6 +141,7 @@ select.f:focus,input.f:focus{border-color:var(--accent)}
   letter-spacing:.01em;
 }
 .badge.pend{background:rgba(201,133,0,.92)}
+.badge.ley{background:rgba(57,135,229,.94)}
 .fav{position:absolute;top:7px;left:7px;font-size:13px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 .anio{position:absolute;bottom:6px;right:6px;background:rgba(10,10,10,.72);color:#e9e8e3;
   font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:5px;backdrop-filter:blur(4px);
@@ -1338,6 +1339,9 @@ function deducirGenero(it){
    ================================================================ */
 // Año de lectura como número de verdad: si viniera como texto o vacío, al final.
 const anioDe = b => { const n = parseInt(b.anio_lectura, 10); return Number.isFinite(n) ? n : -1; };
+// Lo que estás leyendo ahora va siempre arriba: aún no tiene año de lectura,
+// así que sin esto se hundiría al final de la lista.
+const leyendo = b => b.estado === 'leyendo' ? 1 : 0;
 // Mes de lectura: opcional. Sin mes, el libro va al final de su año.
 const mesDe  = b => { const n = parseInt(b.mes_lectura, 10); return Number.isFinite(n) && n >= 1 && n <= 12 ? n : 0; };
 const MESES  = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -1375,6 +1379,7 @@ function filtered(){
     // primero lo leído más recientemente; dentro del mismo año, lo último añadido.
     // Los que no tienen año de lectura (pendientes, o los que no recuerdas) van al final.
     reciente:() => out.sort((a,b)=>
+      (leyendo(b) - leyendo(a)) ||
       (anioDe(b) - anioDe(a)) ||
       (mesDe(b) - mesDe(a)) ||
       String(b.creado_en||'').localeCompare(String(a.creado_en||'')) ||
@@ -1442,7 +1447,9 @@ function galeria(rows){
         ${b.favorito ? '<span class="fav">⭐</span>' : ''}
         ${b.estado === 'pendiente'
             ? '<span class="badge pend">Pendiente</span>'
-            : (b.nota != null ? '<span class="badge">'+b.nota+'</span>' : '')}
+            : b.estado === 'leyendo'
+              ? '<span class="badge ley">Leyendo</span>'
+              : (b.nota != null ? '<span class="badge">'+b.nota+'</span>' : '')}
         ${b.estado !== 'pendiente' && b.anio_lectura
             ? '<span class="anio">'+(mesDe(b) ? MESES_C[mesDe(b)]+' ' : '')+b.anio_lectura+'</span>' : ''}
       </div>
@@ -1509,7 +1516,7 @@ function openDetail(id){
         <div class="d-cab">
           <h3>${esc(b.titulo)}</h3>
           <div class="au">${esc(b.autor||'Autor desconocido')}</div>
-          ${b.estado === 'pendiente' ? '' : `
+          ${b.estado === 'pendiente' || (b.estado === 'leyendo' && b.nota == null) ? '' : `
             <div class="notas">
               <div class="nota-mia">
                 <div class="nk">Tu nota</div>
@@ -1532,6 +1539,8 @@ function openDetail(id){
         <div class="d-resto">
           <div class="meta">
             ${b.estado === 'pendiente' ? '<span class="chip">📖 Pendiente de leer</span>' : ''}
+            ${b.estado === 'leyendo' ? '<span class="chip">📖 Leyéndolo ahora</span>' : ''}
+            ${b.estado === 'abandonado' ? '<span class="chip">Abandonado</span>' : ''}
             ${b.genero ? '<span class="chip">'+esc(b.genero)+'</span>' : ''}
             ${b.paginas ? '<span class="chip">'+b.paginas+' páginas</span>' : ''}
             ${b.anio_lectura ? '<span class="chip">Leído en '+esc(cuandoLeido(b))+'</span>' : ''}
