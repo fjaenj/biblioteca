@@ -246,7 +246,8 @@ label.fld textarea{resize:vertical;min-height:66px;font-family:inherit}
 .ficha-cover .ph{font-size:11px;color:var(--text-muted);text-align:center;padding:6px}
 .ficha-tit{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
 .auto-nota{font-size:11.5px;color:var(--text-muted)}
-.nota-fila{display:flex;gap:12px}
+.nota-fila{display:flex;gap:12px;flex-wrap:wrap}
+.nota-fila .fld{min-width:88px}
 .sep{display:flex;align-items:center;gap:12px;margin:22px 0 14px;color:var(--text-muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .sep::after{content:"";flex:1;height:1px;background:var(--line-soft)}
 .detalles{margin-top:20px;border-top:1px solid var(--line-soft);padding-top:14px}
@@ -349,6 +350,7 @@ svg g.cg:hover .col{filter:brightness(1.2)}
   #mCover{margin-top:8px;font-size:11px;padding:6px 6px;width:104px}
   .detail h3{font-size:17px;line-height:1.25}
   .detail .au{margin-bottom:12px;font-size:13.5px}
+  .nota-fila .fld:nth-child(3){flex:1 1 100%}   /* el mes, a su propia línea en el móvil */
   .notas{gap:8px 20px}
   .nota-ext{padding-left:0;border-left:0}
   .notas .score{font-size:22px}
@@ -558,7 +560,7 @@ const api = {
     const txt = await r.text();
     return txt ? JSON.parse(txt) : null;
   },
-  list(){ return this.req('libros?select=*&order=anio_lectura.desc.nullslast,creado_en.desc,id.desc', {headers:this.h()}); },
+  list(){ return this.req('libros?select=*&order=anio_lectura.desc.nullslast,mes_lectura.desc.nullslast,creado_en.desc,id.desc', {headers:this.h()}); },
   create(b){ return this.req('libros', {method:'POST', headers:this.h({'Prefer':'return=representation'}), body:JSON.stringify(b)}).then(r=>r[0]); },
   update(id,b){ return this.req('libros?id=eq.'+id, {method:'PATCH', headers:this.h({'Prefer':'return=representation'}), body:JSON.stringify(b)}).then(r=>r&&r[0]); },
   remove(id){ return this.req('libros?id=eq.'+id, {method:'DELETE', headers:this.h()}); },
@@ -1336,6 +1338,13 @@ function deducirGenero(it){
    ================================================================ */
 // Año de lectura como número de verdad: si viniera como texto o vacío, al final.
 const anioDe = b => { const n = parseInt(b.anio_lectura, 10); return Number.isFinite(n) ? n : -1; };
+// Mes de lectura: opcional. Sin mes, el libro va al final de su año.
+const mesDe  = b => { const n = parseInt(b.mes_lectura, 10); return Number.isFinite(n) && n >= 1 && n <= 12 ? n : 0; };
+const MESES  = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const MESES_C= ['','ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const cuandoLeido = b => b.anio_lectura
+  ? (mesDe(b) ? MESES[mesDe(b)] + ' de ' + b.anio_lectura : String(b.anio_lectura))
+  : '';
 
 function filtered(){
   const q  = normTxt($('#q').value);
@@ -1367,6 +1376,7 @@ function filtered(){
     // Los que no tienen año de lectura (pendientes, o los que no recuerdas) van al final.
     reciente:() => out.sort((a,b)=>
       (anioDe(b) - anioDe(a)) ||
+      (mesDe(b) - mesDe(a)) ||
       String(b.creado_en||'').localeCompare(String(a.creado_en||'')) ||
       (parseInt(b.id,10)||0) - (parseInt(a.id,10)||0) ||
       col.compare(a.titulo,b.titulo)),
@@ -1433,7 +1443,8 @@ function galeria(rows){
         ${b.estado === 'pendiente'
             ? '<span class="badge pend">Pendiente</span>'
             : (b.nota != null ? '<span class="badge">'+b.nota+'</span>' : '')}
-        ${b.estado !== 'pendiente' && b.anio_lectura ? '<span class="anio">'+b.anio_lectura+'</span>' : ''}
+        ${b.estado !== 'pendiente' && b.anio_lectura
+            ? '<span class="anio">'+(mesDe(b) ? MESES_C[mesDe(b)]+' ' : '')+b.anio_lectura+'</span>' : ''}
       </div>
       <div class="t">${esc(b.titulo)}</div>
       <div class="a">${esc(b.autor||'—')}</div>
@@ -1455,7 +1466,7 @@ function tabla(rows){
         <td class="opc">${esc(b.genero||'')}</td>
         <td class="num opc">${b.paginas ?? ''}</td>
         <td class="num">${b.nota ?? ''}</td>
-        <td class="num">${b.anio_lectura ?? ''}</td>
+        <td class="num" style="white-space:nowrap">${b.anio_lectura ? (mesDe(b) ? MESES_C[mesDe(b)]+' ' : '')+b.anio_lectura : ''}</td>
         <td class="obs opc">${esc(b.observaciones||'')}</td>
       </tr>`).join('') + '</tbody></table></div>';
 }
@@ -1523,7 +1534,7 @@ function openDetail(id){
             ${b.estado === 'pendiente' ? '<span class="chip">📖 Pendiente de leer</span>' : ''}
             ${b.genero ? '<span class="chip">'+esc(b.genero)+'</span>' : ''}
             ${b.paginas ? '<span class="chip">'+b.paginas+' páginas</span>' : ''}
-            ${b.anio_lectura ? '<span class="chip">Leído en '+b.anio_lectura+'</span>' : ''}
+            ${b.anio_lectura ? '<span class="chip">Leído en '+esc(cuandoLeido(b))+'</span>' : ''}
             ${b.editorial ? '<span class="chip">'+esc(b.editorial)+'</span>' : ''}
             ${b.anio_pub ? '<span class="chip">Publicado '+b.anio_pub+'</span>' : ''}
             ${b.isbn ? '<span class="chip">ISBN '+esc(b.isbn)+'</span>' : ''}
@@ -1590,6 +1601,7 @@ function openForm(b, prefill, foco){
   const isNew = !b;
   const v = b || Object.assign({estado: state.tab === 'pendientes' ? 'pendiente' : 'leido'}, prefill || {});
   const anioAhora = new Date().getFullYear();
+  const mesAhora  = new Date().getMonth() + 1;
   const m = openModal(`
     <header><h2>${isNew ? 'Nuevo libro' : 'Editar libro'}</h2><button class="close" aria-label="Cerrar">×</button></header>
     <div class="body">
@@ -1613,7 +1625,16 @@ function openForm(b, prefill, foco){
           </select></label>
         <div class="nota-fila">
           <label class="fld" style="flex:1">Nota (0–10)<input id="f_nota" type="number" min="0" max="10" value="${v.nota ?? ''}"></label>
-          <label class="fld" style="flex:1">Año de lectura<input id="f_anio" type="number" min="1900" max="2100" value="${v.anio_lectura ?? (isNew && v.estado !== 'pendiente' ? anioAhora : '')}"></label>
+          <label class="fld" style="flex:.85">Año<input id="f_anio" type="number" min="1900" max="2100" value="${v.anio_lectura ?? (isNew && v.estado !== 'pendiente' ? anioAhora : '')}"></label>
+          <label class="fld" style="flex:1.2">Mes
+            <select id="f_mes">
+              <option value="">Sin especificar</option>
+              ${MESES.slice(1).map((n,i)=>{
+                const num = i+1;
+                const sel = (v.mes_lectura ?? (isNew && v.estado !== 'pendiente' ? mesAhora : null)) == num ? ' selected' : '';
+                return '<option value="'+num+'"'+sel+'>'+n.charAt(0).toUpperCase()+n.slice(1)+'</option>';
+              }).join('')}
+            </select></label>
         </div>
         <label class="fld full">Opinión<textarea id="f_obs" placeholder="Qué te ha parecido, para acordarte dentro de unos años…">${esc(v.observaciones||'')}</textarea></label>
       </div>
@@ -1657,6 +1678,7 @@ function openForm(b, prefill, foco){
       nota: int(q('#f_nota').value),
       paginas: int(q('#f_paginas').value),
       anio_lectura: int(q('#f_anio').value),
+      mes_lectura: int(q('#f_mes').value),
       editorial: nz(q('#f_editorial').value.trim()),
       anio_pub: int(q('#f_anio_pub').value),
       portada: nz(q('#f_portada').value.trim()),
@@ -2181,7 +2203,7 @@ async function persistSug(s, patch){
 async function sugAPendientes(s){
   const rec = {titulo:s.titulo, autor:s.autor, genero:s.genero || generoDelAutor(s.autor), paginas:s.paginas,
                editorial:s.editorial, anio_pub:s.anio, portada:s.portada||null,
-               estado:'pendiente', observaciones:null, nota:null, anio_lectura:null};
+               estado:'pendiente', observaciones:null, nota:null, anio_lectura:null, mes_lectura:null};
   if(state.online){
     try{ state.books.push(await api.create(rec)); }
     catch(e){ toast('No se pudo añadir: '+e.message); return; }
@@ -2346,7 +2368,7 @@ function exportar(){
         <button class="btn" id="xJson">JSON</button>
       </div>
     </div>`, 'sm');
-  const cols = ['titulo','autor','genero','paginas','nota','anio_lectura','estado','favorito','editorial','anio_pub','isbn','observaciones','sinopsis','sinopsis_fuente','rating_ext','rating_votos','rating_fuente','portada'];
+  const cols = ['titulo','autor','genero','paginas','nota','anio_lectura','mes_lectura','estado','favorito','editorial','anio_pub','isbn','observaciones','sinopsis','sinopsis_fuente','rating_ext','rating_votos','rating_fuente','portada'];
   const dl = (name, txt, mime) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([txt], {type:mime}));
