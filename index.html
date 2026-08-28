@@ -289,6 +289,12 @@ label.fld textarea{resize:vertical;min-height:66px;font-family:inherit}
 .brow .fill{height:100%;background:var(--series-1);border-radius:0 4px 4px 0;transition:width .5s cubic-bezier(.2,.8,.2,1)}
 .brow .vl{text-align:right;color:var(--text-secondary);font-variant-numeric:tabular-nums;font-size:12.5px}
 .brow:hover .lb,.brow:hover .vl{color:var(--text-primary)}
+.brow.clic{cursor:pointer;border-radius:7px;margin:0 -8px;padding:0 8px;transition:background .13s}
+.brow.clic:hover{background:var(--surface-2)}
+.tile.clic{cursor:pointer;transition:border-color .15s, transform .15s}
+.tile.clic:hover{border-color:var(--text-muted);transform:translateY(-2px)}
+svg g.cg.clic{cursor:pointer}
+#limpiar{padding:6px 11px;font-size:12.5px}
 .dif{margin-left:8px;padding:1px 7px;border-radius:20px;font-weight:650;font-size:11.5px}
 .dif.up{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
 .dif.down{background:color-mix(in srgb,var(--critical) 16%,transparent);color:var(--critical)}
@@ -456,8 +462,11 @@ svg g.cg:hover .col{filter:brightness(1.2)}
       <select class="f" id="fAnio"><option value="">Todos los años</option></select>
       <select class="f" id="fNota">
         <option value="">Cualquier nota</option>
-        <option value="9">9 o más</option><option value="8">8 o más</option>
-        <option value="7">7 o más</option><option value="6">6 o más</option>
+        <optgroup label="Nota mínima">
+          <option value=">=9">9 o más</option><option value=">=8">8 o más</option>
+          <option value=">=7">7 o más</option><option value=">=6">6 o más</option>
+        </optgroup>
+        <optgroup label="Nota exacta" id="notaExactas"></optgroup>
       </select>
       <select class="f" id="fSort">
         <option value="reciente">Ordenar: lo último leído</option>
@@ -476,6 +485,10 @@ svg g.cg:hover .col{filter:brightness(1.2)}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
       </button>
       <span class="chip" id="count">—</span>
+      <button class="btn hidden" id="limpiar" title="Quitar todos los filtros">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        Quitar filtros
+      </button>
     </div>
     <div id="list"></div>
   </section>
@@ -1352,7 +1365,8 @@ const cuandoLeido = b => b.anio_lectura
 
 function filtered(){
   const q  = normTxt($('#q').value);
-  const fa = $('#fAutor').value, fg = $('#fGenero').value, fy = $('#fAnio').value, fn = +$('#fNota').value || 0;
+  const fa = $('#fAutor').value, fg = $('#fGenero').value, fy = $('#fAnio').value;
+  const fn = $('#fNota').value;   // '' | '>=8' (mínima) | '=8' (exacta)
   const wantPend = state.tab === 'pendientes';
   let out = state.books.filter(b => {
     const isPend = b.estado === 'pendiente';
@@ -1360,7 +1374,11 @@ function filtered(){
     if(fa && b.autor !== fa) return false;
     if(fg && b.genero !== fg) return false;
     if(fy && String(b.anio_lectura) !== fy) return false;
-    if(fn && !(b.nota >= fn)) return false;
+    if(fn){
+      const n = parseInt(fn.replace(/[^0-9]/g,''), 10);
+      if(fn.startsWith('>=')){ if(!(b.nota >= n)) return false; }
+      else if(b.nota !== n) return false;
+    }
     if(q){
       const hay = normTxt([b.titulo,b.autor,b.genero,b.observaciones,b.editorial].join(' '));
       if(!q.split(' ').every(w => hay.includes(w))) return false;
@@ -1404,6 +1422,11 @@ function refreshFilters(){
   set('#fAutor',  [...new Set(state.books.map(b=>b.autor).filter(Boolean))].sort(col.compare));
   set('#fGenero', [...new Set(state.books.map(b=>b.genero).filter(Boolean))].sort(col.compare));
   set('#fAnio',   [...new Set(state.books.map(b=>b.anio_lectura).filter(Boolean))].sort((a,b)=>b-a));
+  // notas exactas: solo las que existen de verdad en tu biblioteca
+  const gEx = $('#notaExactas'), curN = $('#fNota').value;
+  const notas = [...new Set(state.books.map(b=>b.nota).filter(n=>n!=null))].sort((a,b)=>b-a);
+  gEx.innerHTML = notas.map(n=>'<option value="='+n+'">Justo un '+n+'</option>').join('');
+  $('#fNota').value = [...$('#fNota').querySelectorAll('option')].some(o=>o.value===curN) ? curN : '';
 }
 
 /* ================================================================
@@ -1427,6 +1450,7 @@ function coverHTML(b, cls){
 function render(){
   const rows = filtered();
   $('#count').textContent = rows.length + (rows.length === 1 ? ' libro' : ' libros');
+  $('#limpiar').classList.toggle('hidden', !hayFiltros());
   const host = $('#list');
   if(!rows.length){
     host.innerHTML = '<div class="empty"><h3>Nada por aquí</h3><p>'
@@ -2036,14 +2060,15 @@ function renderStats(){
   const media  = notas.length ? (notas.reduce((a,b)=>a+b,0)/notas.length) : null;
   const totalP = pags.reduce((a,b)=>a+b,0);
 
-  const tile = (k,v,s='') => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div>${s?'<div class="s">'+s+'</div>':''}</div>`;
+  const tile = (k,v,s='',at='') => `<div class="tile${at?' clic':''}" ${at}><div class="k">${k}</div><div class="v">${v}</div>${s?'<div class="s">'+s+'</div>':''}</div>`;
   $('#tiles').innerHTML =
-      tile('Libros leídos', leidos.length, state.books.filter(b=>b.estado==='pendiente').length + ' pendientes')
+      tile('Libros leídos', leidos.length, state.books.filter(b=>b.estado==='pendiente').length + ' pendientes', 'data-fk="todos"')
     + tile('Páginas leídas', totalP.toLocaleString('es-ES'), pags.length + ' de ' + leidos.length + ' libros con dato')
     + tile('Nota media', media != null ? media.toFixed(1) : '—', notas.length + ' libros valorados')
     + tile('Autores distintos', new Set(leidos.map(b=>b.autor).filter(Boolean)).size, new Set(leidos.map(b=>b.genero).filter(Boolean)).size + ' géneros')
     + tile('Libro más largo', pags.length ? Math.max(...pags).toLocaleString('es-ES') : '—',
-           pags.length ? esc(leidos.find(b=>b.paginas===Math.max(...pags)).titulo) : '');
+           pags.length ? esc(leidos.find(b=>b.paginas===Math.max(...pags)).titulo) : '',
+           pags.length ? 'data-libro="'+esc(leidos.find(b=>b.paginas===Math.max(...pags)).id)+'"' : '');
 
   const byYear = tally(leidos.filter(b=>b.anio_lectura), b=>b.anio_lectura);
   const years  = [...byYear.keys()].sort((a,b)=>a-b);
@@ -2055,16 +2080,47 @@ function renderStats(){
 
   $('#panels').innerHTML = [
     panel('Libros por año de lectura', 'Cuántos terminaste cada año',
-          years.length ? columns(years.map(y=>[String(y), byYear.get(y)]), v=>v+(v===1?' libro':' libros')) : vacio()),
+          years.length ? columns(years.map(y=>[String(y), byYear.get(y)]), v=>v+(v===1?' libro':' libros'), 'anio') : vacio()),
     panel('Páginas por año', 'Volumen de lectura anual',
-          years.length ? columns(years.map(y=>[String(y), pagsYear.get(y)]), v=>v.toLocaleString('es-ES')+' págs.') : vacio()),
-    panel('Géneros más leídos', 'Top 8 por número de libros', bars(genres, v=>v)),
-    panel('Autores más leídos', 'Top 8 por número de libros', bars(authors, v=>v)),
+          years.length ? columns(years.map(y=>[String(y), pagsYear.get(y)]), v=>v.toLocaleString('es-ES')+' págs.', 'anio') : vacio()),
+    panel('Géneros más leídos', 'Top 8 por número de libros', bars(genres, v=>v, 'genero')),
+    panel('Autores más leídos', 'Top 8 por número de libros', bars(authors, v=>v, 'autor')),
     panel('Reparto de notas', 'Cuántos libros por puntuación',
-          notaDist.length ? columns(notaDist.map(([n,c])=>[String(n), c]), v=>v+(v===1?' libro':' libros')) : vacio()),
+          notaDist.length ? columns(notaDist.map(([n,c])=>[String(n), c]), v=>v+(v===1?' libro':' libros'), 'nota') : vacio()),
     panel('Mejor valorados', 'Tus notas más altas', ranking(leidos)),
     panel('Tú contra el resto', 'Donde más te separas de la nota de los lectores', discrepancias(leidos)),
   ].join('');
+
+  // un solo manejador para todo lo pulsable de la pestaña
+  $('#view-stats').querySelectorAll('[data-fk],[data-libro]').forEach(el => {
+    el.onclick = () => {
+      if(el.dataset.libro) openDetail(el.dataset.libro);
+      else irAFiltro(el.dataset.fk, el.dataset.fv);
+    };
+  });
+}
+
+/* salta a la lista aplicando un filtro, desde cualquier gráfico */
+function irAFiltro(fk, fv){
+  ['#q','#fAutor','#fGenero','#fAnio','#fNota'].forEach(s => $(s).value = '');
+  let txt = '';
+  if(fk === 'anio'  ){ $('#fAnio').value = String(fv);   txt = 'Leídos en ' + fv; }
+  if(fk === 'genero'){ $('#fGenero').value = fv;         txt = 'Género: ' + fv; }
+  if(fk === 'autor' ){ $('#fAutor').value = fv;          txt = 'Autor: ' + fv; }
+  if(fk === 'nota'  ){ $('#fNota').value = '=' + fv;     txt = 'Con un ' + fv; }
+  if(fk === 'todos' ){ txt = 'Toda tu biblioteca'; }
+  // si el valor no existiera en el desplegable, no dejamos un filtro fantasma
+  if(fk !== 'todos' && !['#fAnio','#fGenero','#fAutor','#fNota'].some(s => $(s).value)){
+    toast('No he podido aplicar ese filtro'); return;
+  }
+  setTab('leidos');
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  toast(txt + ' · ' + $('#count').textContent);
+}
+
+/* ¿hay algún filtro puesto? */
+function hayFiltros(){
+  return ['#q','#fAutor','#fGenero','#fAnio','#fNota'].some(s => $(s).value);
 }
 
 function vacio(){ return '<p style="color:var(--text-muted);font-size:13.5px">Sin datos suficientes.</p>'; }
@@ -2077,11 +2133,12 @@ function tally(arr, key){
 function topN(map, n){ return [...map.entries()].sort((a,b)=>b[1]-a[1] || String(a[0]).localeCompare(String(b[0]))).slice(0,n); }
 
 /* barras horizontales (categorias nominales, un solo color) */
-function bars(pairs, fmt){
+function bars(pairs, fmt, fk){
   if(!pairs.length) return vacio();
   const max = Math.max(...pairs.map(p=>p[1]));
   return '<div class="bar-row">' + pairs.map(([k,v]) => `
-    <div class="brow" title="${esc(k)}: ${fmt(v)}">
+    <div class="brow${fk ? ' clic' : ''}" ${fk ? 'data-fk="'+fk+'" data-fv="'+esc(k)+'"' : ''}
+         title="${fk ? 'Ver estos libros — ' : ''}${esc(k)}: ${fmt(v)}">
       <div class="lb">${esc(k)}</div>
       <div class="track"><div class="fill" style="width:${(v/max*100).toFixed(1)}%"></div></div>
       <div class="vl">${fmt(v)}</div>
@@ -2089,7 +2146,7 @@ function bars(pairs, fmt){
 }
 
 /* columnas verticales en SVG, una sola serie -> sin leyenda */
-function columns(pairs, tip){
+function columns(pairs, tip, fk){
   if(!pairs.length) return vacio();
   const W = 460, H = 190, PL = 40, PR = 10, PT = 18, PB = 26;
   const iw = W - PL - PR, ih = H - PT - PB;
@@ -2107,7 +2164,7 @@ function columns(pairs, tip){
       const h = top ? (v/top)*ih : 0;
       const x = PL + band*i + (band-bw)/2, y = PT + ih - h;
       const isMax = v === max;
-      return `<g class="cg"><title>${esc(k)}: ${tip(v)}</title>
+      return `<g class="cg${fk ? ' clic' : ''}" ${fk ? 'data-fk="'+fk+'" data-fv="'+esc(k)+'"' : ''}><title>${fk ? 'Ver estos libros — ' : ''}${esc(k)}: ${tip(v)}</title>
         <path class="col" d="M${x.toFixed(1)},${(PT+ih).toFixed(1)} L${x.toFixed(1)},${(y+Math.min(4,h)).toFixed(1)} Q${x.toFixed(1)},${y.toFixed(1)} ${(x+Math.min(4,h/2)).toFixed(1)},${y.toFixed(1)} L${(x+bw-Math.min(4,h/2)).toFixed(1)},${y.toFixed(1)} Q${(x+bw).toFixed(1)},${y.toFixed(1)} ${(x+bw).toFixed(1)},${(y+Math.min(4,h)).toFixed(1)} L${(x+bw).toFixed(1)},${(PT+ih).toFixed(1)} Z"/>
         ${isMax && h > 14 ? `<text class="val-t" x="${(x+bw/2).toFixed(1)}" y="${(y-5).toFixed(1)}" text-anchor="middle">${v.toLocaleString('es-ES')}</text>` : ''}
         <rect class="colhit" x="${(PL+band*i).toFixed(1)}" y="${PT}" width="${band.toFixed(1)}" height="${ih}"/>
@@ -2131,7 +2188,7 @@ function discrepancias(leidos){
     .slice(0, 8);
   if(!con.length) return '<p style="color:var(--text-muted);font-size:13.5px">Todavía no tengo la nota de los lectores de ningún libro.</p>';
   return '<div class="bar-row">' + con.map(({b, ext, dif}) => `
-    <div class="brow" style="grid-template-columns:1fr auto;gap:12px" title="${esc(b.titulo)}">
+    <div class="brow clic" data-libro="${esc(b.id)}" style="grid-template-columns:1fr auto;gap:12px" title="Abrir la ficha">
       <div class="lb">${esc(b.titulo)} <span style="color:var(--text-muted)">· ${esc(b.autor||'')}</span></div>
       <div style="white-space:nowrap;font-variant-numeric:tabular-nums;font-size:12.5px">
         <b>${b.nota}</b><span style="color:var(--text-muted)"> vs ${ext.toFixed(1).replace('.',',')}</span>
@@ -2145,8 +2202,8 @@ function ranking(leidos){
   const top = leidos.filter(b=>b.nota!=null).sort((a,b)=>b.nota-a.nota).slice(0,8);
   if(!top.length) return vacio();
   return '<div class="bar-row">' + top.map(b=>`
-    <div class="brow" style="grid-template-columns:1fr auto;gap:12px">
-      <div class="lb" title="${esc(b.titulo)}">${esc(b.titulo)} <span style="color:var(--text-muted)">· ${esc(b.autor||'')}</span></div>
+    <div class="brow clic" data-libro="${esc(b.id)}" style="grid-template-columns:1fr auto;gap:12px" title="Abrir la ficha">
+      <div class="lb">${esc(b.titulo)} <span style="color:var(--text-muted)">· ${esc(b.autor||'')}</span></div>
       <div style="white-space:nowrap"><span class="stars" style="font-size:12px">${stars(b.nota)}</span> <b style="font-variant-numeric:tabular-nums">${b.nota}</b></div>
     </div>`).join('') + '</div>';
 }
@@ -2414,6 +2471,10 @@ function wire(){
   $('#btnAdd').onclick = openSearch;
   $('#btnFiltros').onclick = () => $('#filtros').classList.toggle('abierto');
   $('#btnSesion').onclick = openSesion;
+  $('#limpiar').onclick = () => {
+    ['#q','#fAutor','#fGenero','#fAnio','#fNota'].forEach(s => $(s).value = '');
+    render();
+  };
   $('#btnCovers').onclick = () => identificado() ? openCoverReview()
     : toast('Inicia sesión para cambiar las carátulas');
   $('#btnExport').onclick = exportar;
