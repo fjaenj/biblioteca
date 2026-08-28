@@ -142,6 +142,9 @@ select.f:focus,input.f:focus{border-color:var(--accent)}
 }
 .badge.pend{background:rgba(201,133,0,.92)}
 .fav{position:absolute;top:7px;left:7px;font-size:13px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.anio{position:absolute;bottom:6px;right:6px;background:rgba(10,10,10,.72);color:#e9e8e3;
+  font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:5px;backdrop-filter:blur(4px);
+  font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .card .t{font-size:13.5px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card .a{font-size:12.5px;color:var(--text-muted);line-height:1.3;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 
@@ -186,8 +189,17 @@ td .mini{width:30px;height:45px;border-radius:3px;object-fit:cover;display:block
 .btn.close{border:1px solid var(--line);background:var(--surface-1);color:var(--text-primary);font-size:13.5px;line-height:1.5;padding:8px 14px;border-radius:9px}
 .btn.close:hover{border-color:var(--text-muted);background:var(--surface-1)}
 
-.detail{display:grid;grid-template-columns:180px 1fr;gap:22px}
-.detail .dc{width:100%;aspect-ratio:2/3;border-radius:10px;object-fit:cover;background:var(--surface-2);box-shadow:var(--shadow)}
+.detail{display:grid;grid-template-columns:180px 1fr;gap:8px 22px;
+  grid-template-areas:"col cab" "col resto"; align-items:start}
+.d-col{grid-area:col}
+.d-cab{grid-area:cab}
+.d-resto{grid-area:resto}
+.d-col #mCover{width:100%;margin-top:10px;justify-content:center}
+/* la portada de la ficha NO se recorta: los libros no son todos 2:3 */
+.dcover{width:100%;border-radius:10px;overflow:hidden;background:var(--surface-2);box-shadow:var(--shadow);
+  display:grid;place-items:center;min-height:120px}
+.dcover img{width:100%;height:auto;display:block;max-height:360px;object-fit:contain}
+.dcover .ph{font-size:12px;color:var(--text-muted);padding:34px 10px;text-align:center}
 .detail h3{font-size:20px;line-height:1.25;margin-bottom:4px}
 .detail .au{color:var(--text-secondary);margin-bottom:14px}
 .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
@@ -297,7 +309,7 @@ svg g.cg:hover .col{filter:brightness(1.2)}
   display:flex;gap:14px;padding:14px;border-radius:var(--radius);
   background:var(--surface-1);border:1px solid var(--line-soft);
 }
-.sug-cover{width:74px;flex:none;aspect-ratio:2/3;border-radius:6px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center}
+.sug-cover{width:74px;flex:none;align-self:flex-start;aspect-ratio:2/3;border-radius:6px;overflow:hidden;background:var(--surface-2);display:grid;place-items:center}
 .sug-cover img{width:100%;height:100%;object-fit:cover;display:block}
 .sug-cover .ph{padding:8px;text-align:center;font-size:10.5px;color:var(--text-muted);line-height:1.3}
 .sug-info{flex:1;min-width:0}
@@ -326,13 +338,34 @@ svg g.cg:hover .col{filter:brightness(1.2)}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(-4px)}
 .hidden{display:none !important}
 @media (max-width:640px){
-  .detail{grid-template-columns:1fr}
-  .detail .dc{max-width:180px}
+  /* ficha: portada pequeña a la izquierda y los datos al lado, para que
+     el título y las notas se vean sin tener que bajar */
+  /* en móvil, solo el encabezado va junto a la portada; el texto largo
+     ocupa todo el ancho para que no quede encajonado */
+  .detail{grid-template-columns:104px 1fr;gap:12px 14px;
+    grid-template-areas:"col cab" "resto resto"}
+  .dcover{max-width:104px;margin:0;min-height:90px}
+  .dcover img{max-height:240px}   /* con 104px de ancho, ninguna portada normal llega */
+  #mCover{margin-top:8px;font-size:11px;padding:6px 6px;width:104px}
+  .detail h3{font-size:17px;line-height:1.25}
+  .detail .au{margin-bottom:12px;font-size:13.5px}
+  .notas{gap:8px 20px}
+  .nota-ext{padding-left:0;border-left:0}
+  .notas .score{font-size:22px}
+  .meta{gap:6px}
+  .chip{font-size:11.5px;padding:4px 8px}
+  .notebox,.sinbox{margin-top:12px}
+  .sinopsis{max-height:200px}
   .grid2{grid-template-columns:1fr}
   .gallery{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:16px 10px}
   .card .t{font-size:12.5px}
   .card .a{font-size:11.5px}
-  .brow{grid-template-columns:88px 1fr 40px}
+  .brow{grid-template-columns:78px 1fr 38px;font-size:12.5px}
+  .brow .lb{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.35}
+  /* tabla: fuera lo prescindible, que en el móvil no cabe */
+  .tablewrap .opc{display:none}
+  th,td{padding:9px 8px}
+  .panel{padding:15px}
   .wrap{padding:0 14px 70px}
 
   /* cabecera: marca y botones en una fila, pestañas deslizables debajo */
@@ -342,7 +375,11 @@ svg g.cg:hover .col{filter:brightness(1.2)}
   .tabs::-webkit-scrollbar{display:none}
   .tabs button{padding:7px 9px;font-size:12px;white-space:nowrap;flex:none}
   .grow{display:none}
-  #btnAdd{padding:8px 12px}
+  #btnAdd{padding:8px 10px;gap:0}
+  #btnAdd .txt{display:none}            /* solo el + : así la cabecera cabe en una fila */
+  .brand{font-size:15px}
+  .brand svg{width:19px;height:19px}
+  .sug-btns .btn{padding:6px 10px;font-size:12px}
 
   /* filtros plegados tras un botón */
   .solo-movil{display:grid}
@@ -382,7 +419,7 @@ svg g.cg:hover .col{filter:brightness(1.2)}
     <div class="grow"></div>
     <button class="btn primary" id="btnAdd">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      Añadir libro
+      <span class="txt">Añadir libro</span>
     </button>
     <button class="icon-btn" id="btnSesion" title="Tu sesión">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
@@ -1109,17 +1146,17 @@ async function resolveCover(book, exigirPortada = true){
     const t = book.titulo, a = book.autor || '';
     // Google se consulta como MUCHO 2 veces por libro: su cuota diaria es limitada.
     // Open Library no tiene cuota, así que ahí sí insistimos más.
-    const gb = [
-      [gbSearch, 'intitle:"'+t+'" inauthor:"'+a+'"', 'es'],
-      [gbSearch, t + ' ' + a, 'es'],
-    ];
-    const ol = [
+    // Open Library primero: no tiene cuota y resuelve la mayoría. Google va
+    // después, como refuerzo, para no depender de un límite diario que no
+    // controlamos. En el buscador de altas sí va Google primero (una consulta).
+    const intentos = [
       [olSearch, 'title:"'+t+'" author:"'+a+'"', 'spa'],
       [olSearch, t + ' ' + a, 'spa'],
+      [gbSearch, 'intitle:"'+t+'" inauthor:"'+a+'"', 'es'],
       [olSearch, 'title:"'+t+'" author:"'+a+'"', ''],
+      [gbSearch, t + ' ' + a, 'es'],
       [olSearch, t + ' ' + a, ''],
     ];
-    const intentos = GOOGLE_BOOKS_API_KEY ? gb.concat(ol) : ol.concat(gb);
     for(const [fn, q, idioma] of intentos){
       let items = [];
       try{ items = await fn(q, 12, idioma); err = null; }catch(e){ err = e; continue; }
@@ -1224,8 +1261,9 @@ function coversBanner(faltan, err, fase){
   const esCuota = /rateLimitExceeded|dailyLimitExceeded/.test(gbMotivo || '');
   const real = gbMotivo || (err && err.message);
   const motivo = esCuota
-    ? '<br><span style="color:var(--text-muted)">Google Books ha agotado su cuota del día; se reinicia sobre las 9:00 (hora española). '
-      + 'Open Library y Wikipedia siguen funcionando, así que estas son las que no tiene nadie.</span>'
+    ? '<br><span style="color:var(--text-muted)">Estas no las tiene ninguno de los tres catálogos. '
+      + 'Google Books además ha dejado de responder por su límite de consultas, pero es secundario: '
+      + 'la búsqueda va primero por Open Library y Wikipedia.</span>'
     : (real ? '<br><span style="color:var(--text-muted)">Motivo: <code>' + esc(String(real).slice(0,200)) + '</code></span>' : '');
 
   const lista = fase === 'buscando' || !pendientes.length ? '' :
@@ -1240,7 +1278,7 @@ function coversBanner(faltan, err, fase){
     + (fase === 'buscando' ? 'Completando fichas… quedan <b>' + faltan + '</b>.' : 'Fichas por completar: <b>' + detalle + '</b>.')
     + motivo + lista + '</div>'
     + (fase === 'buscando' ? '' : '<button class="btn" id="reCovers" style="flex:none">Reintentar</button>')
-    + (fase === 'buscando' || !GOOGLE_BOOKS_API_KEY ? '' : '<button class="btn" id="probarGB" style="flex:none">Probar la clave</button>')
+    + (fase === 'buscando' || !GOOGLE_BOOKS_API_KEY || !gbMotivo ? '' : '<button class="btn" id="probarGB" style="flex:none">Probar la clave</button>')
     + '</div>';
   const rb = host.querySelector('#reCovers');
   if(rb) rb.onclick = () => fillCovers(true);
@@ -1296,7 +1334,8 @@ function deducirGenero(it){
 /* ================================================================
    FILTRADO / ORDEN
    ================================================================ */
-const anioDe = b => b.anio_lectura ?? -1;   // sin año, al final
+// Año de lectura como número de verdad: si viniera como texto o vacío, al final.
+const anioDe = b => { const n = parseInt(b.anio_lectura, 10); return Number.isFinite(n) ? n : -1; };
 
 function filtered(){
   const q  = normTxt($('#q').value);
@@ -1394,6 +1433,7 @@ function galeria(rows){
         ${b.estado === 'pendiente'
             ? '<span class="badge pend">Pendiente</span>'
             : (b.nota != null ? '<span class="badge">'+b.nota+'</span>' : '')}
+        ${b.estado !== 'pendiente' && b.anio_lectura ? '<span class="anio">'+b.anio_lectura+'</span>' : ''}
       </div>
       <div class="t">${esc(b.titulo)}</div>
       <div class="a">${esc(b.autor||'—')}</div>
@@ -1401,19 +1441,22 @@ function galeria(rows){
 }
 
 function tabla(rows){
-  const cols = [['titulo','Título'],['autor','Autor'],['genero','Género'],['paginas','Págs.'],['nota','Nota'],['anio_lectura','Año'],['observaciones','Opinión']];
+  // en móvil se ocultan las columnas prescindibles (clase 'opc') para que quepa
+  const cols = [['titulo','Título',''],['autor','Autor',''],['genero','Género','opc'],
+                ['paginas','Págs.','opc'],['nota','Nota',''],['anio_lectura','Año',''],
+                ['observaciones','Opinión','opc']];
   return '<div class="tablewrap"><table><thead><tr><th style="width:44px"></th>'
-    + cols.map(c=>'<th data-k="'+c[0]+'">'+c[1]+'</th>').join('')
+    + cols.map(c=>'<th data-k="'+c[0]+'" class="'+c[2]+'">'+c[1]+'</th>').join('')
     + '</tr></thead><tbody>' + rows.map(b => `
       <tr data-id="${esc(b.id)}">
         <td>${b.portada ? '<img class="mini" src="'+esc(b.portada)+'" alt="" loading="lazy">' : '<div class="mini"></div>'}</td>
         <td><b>${esc(b.titulo)}</b>${b.favorito?' ⭐':''}</td>
         <td>${esc(b.autor||'')}</td>
-        <td>${esc(b.genero||'')}</td>
-        <td class="num">${b.paginas ?? ''}</td>
+        <td class="opc">${esc(b.genero||'')}</td>
+        <td class="num opc">${b.paginas ?? ''}</td>
         <td class="num">${b.nota ?? ''}</td>
         <td class="num">${b.anio_lectura ?? ''}</td>
-        <td class="obs">${esc(b.observaciones||'')}</td>
+        <td class="obs opc">${esc(b.observaciones||'')}</td>
       </tr>`).join('') + '</tbody></table></div>';
 }
 
@@ -1445,11 +1488,14 @@ function openDetail(id){
     <header><h2>Ficha del libro</h2><button class="close" aria-label="Cerrar">×</button></header>
     <div class="body">
       <div class="detail">
-        <div>
-          <div class="cover" style="box-shadow:var(--shadow)">${coverHTML(b,'dc')}</div>
-          ${identificado() ? '<button class="btn" id="mCover" style="width:100%;margin-top:10px;justify-content:center">Cambiar portada</button>' : ''}
+        <div class="d-col">
+          <div class="dcover">${b.portada
+            ? '<img src="'+esc(b.portada)+'" alt="Portada de '+esc(b.titulo)+'" onerror="this.parentNode.innerHTML=\'<div class=&quot;ph&quot;>Sin portada</div>\'">'
+            : '<div class="ph">Sin portada</div>'}</div>
+          ${identificado() ? '<button class="btn" id="mCover">Cambiar portada</button>' : ''}
         </div>
-        <div>
+
+        <div class="d-cab">
           <h3>${esc(b.titulo)}</h3>
           <div class="au">${esc(b.autor||'Autor desconocido')}</div>
           ${b.estado === 'pendiente' ? '' : `
@@ -1470,6 +1516,9 @@ function openDetail(id){
                 <div class="nsub">${(b.rating_votos||0).toLocaleString('es-ES')} votos · ${esc(b.rating_fuente||'')}</div>
               </div>` : ''}
             </div>`}
+        </div>
+
+        <div class="d-resto">
           <div class="meta">
             ${b.estado === 'pendiente' ? '<span class="chip">📖 Pendiente de leer</span>' : ''}
             ${b.genero ? '<span class="chip">'+esc(b.genero)+'</span>' : ''}
@@ -1873,7 +1922,7 @@ async function candidatosPortada(b){
     () => gbSearch(t+' '+a, 14, 'es'),
     () => gbSearch('intitle:"'+t+'" inauthor:"'+a+'"', 14),
   ];
-  const intentos = GOOGLE_BOOKS_API_KEY ? gb.concat(ol) : ol.concat(gb);
+  const intentos = ol.concat(gb);
   const vistos = new Set(), out = [];
   let err = null;
   for(const f of intentos){
